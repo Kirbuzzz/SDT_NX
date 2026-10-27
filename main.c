@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <malloc.h>
 #include <sys/stat.h>
 #include "sdt.h"
 
@@ -19,16 +20,24 @@ int g_guest;
 static FILE *g_logf, *g_unres;
 static PadState g_pad;
 
-/* El codigo de Android lee el "canario" de pila en TPIDR_EL0+0x28. En Horizon esa zona es el
- * buffer de mensajes IPC (lo pisa cualquier E/S de la SD). Lo reescribimos tras cada E/S y
- * antes de entrar en codigo cargado, para que el chequeo de pila no falle. */
-#if defined(__aarch64__)
-static inline uint8_t *tp(void) { uint64_t x; __asm__ volatile("mrs %0, tpidr_el0" : "=r"(x)); return (uint8_t *)x; }
-#else
-static inline uint8_t *tp(void) { return NULL; }
-#endif
+/* El codigo de Android espera que TPIDR_EL0 apunte a su bloque TLS (estilo bionic) y lee el
+ * "canario" de pila en TP+0x28. En Horizon TPIDR_EL0 vale 0 (libnx usa TPIDRRO_EL0), asi que
+ * le damos un bloque propio. Cada hilo nuevo que cree el codigo cargado necesitara el suyo. */
 static const uint64_t CANARY = 0x5344544e58434b31ULL;
-void canary_fix(void) { uint8_t *t = tp(); if (t) *(volatile uint64_t *)(t + 0x28) = CANARY; }
+static void guest_tls_install(void) {
+#if defined(__aarch64__)
+    static uint64_t *blk;
+    if (!blk) {
+        blk = (uint64_t *)memalign(0x1000, 0x1000);
+        memset(blk, 0, 0x1000);
+        blk[0] = (uint64_t)(uintptr_t)blk;   /* TLS_SLOT_SELF         */
+        blk[1] = 1;                          /* TLS_SLOT_THREAD_ID    */
+        blk[5] = CANARY;                     /* TLS_SLOT_STACK_GUARD  */
+    }
+    __asm__ volatile("msr tpidr_el0, %0" :: "r"(blk));
+#endif
+}
+void canary_fix(void) { /* ya no hace falta: TPIDR_EL0 es nuestro */ }
 
 void LOG(const char *fmt, ...) {
     va_list a;
@@ -69,7 +78,8 @@ int main(int argc, char **argv) {
     mkdir(DIR_BASE, 0777); mkdir(DIR_LIB, 0777);
     g_logf = fopen(DIR_BASE "/log.txt", "w");
     g_unres = fopen(DIR_BASE "/unresolved.tsv", "w");
-    LOG("SDT loader - hito 3\n");
+    LOG("SDT loader - hito 3b\n");
+    guest_tls_install();
 
     ElfPlatform pl; nx_platform(&pl);
     pl.resolve = p_resolve; pl.make_stub = p_stub; pl.unresolved = p_unres;
@@ -89,7 +99,7 @@ int main(int argc, char **argv) {
     int32_t (*onload)(void *, void *) = (int32_t (*)(void *, void *))elf_sym(mm, "JNI_OnLoad");
     if (!onload) fatal_wait("libmain.so no exporta JNI_OnLoad");
     LOG("\n-> JNI_OnLoad(libmain.so) en %p\n", (void *)onload);
-    g_guest = 1; canary_fix();
+    g_guest = 1;
     int32_t v = onload(jni_vm(), NULL);
     g_guest = 0;
     LOG("<- JNI_OnLoad devolvio 0x%x (esperado 0x10006)\n", v);
@@ -99,7 +109,7 @@ int main(int argc, char **argv) {
         fatal_wait("libmain no registro NativeLoader.load");
     void *dir = jni_new_string(DIR_LIB);
     LOG("\n-> NativeLoader.load(\"%s\") en %p\n", DIR_LIB, fn);
-    g_guest = 1; canary_fix();
+    g_guest = 1;
     uint8_t ok = ((uint8_t (*)(void *, void *, void *))fn)(jni_env(), cls, dir);
     g_guest = 0;
     LOG("<- NativeLoader.load devolvio %d\n", ok);
