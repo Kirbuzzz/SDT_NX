@@ -10,8 +10,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Asegurar libnx
         run: |
-          if command -v dkp-pacman >/dev/null 2>&1; then PM=dkp-pacman; else PM=pacman; fi
-          $PM -Sy --noconfirm switch-dev
+          if [ -d /opt/devkitpro/libnx ]; then
+            echo "libnx ya esta en la imagen, no hace falta instalar nada"
+          else
+            if command -v dkp-pacman >/dev/null 2>&1; then PM=dkp-pacman; else PM=pacman; fi
+            $PM -Sy --noconfirm switch-dev
+          fi
       - name: Compilar
         run: make
       - name: Subir NRO
