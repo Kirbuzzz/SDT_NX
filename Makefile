@@ -3,7 +3,8 @@ DEVKITPRO ?= /opt/devkitpro
 export PATH := $(DEVKITPRO)/devkitA64/bin:$(DEVKITPRO)/tools/bin:$(PATH)
 
 TARGET := sdt_loader
-OBJS   := main.o elfload.o
+OBJS   := main.o elfload.o nxplat.o dl.o jni.o shims.o stubs.o
+HDRS   := elfload.h sdt.h stubs.inc jni_stubs.inc jni_names.inc
 LIBNX  := $(DEVKITPRO)/libnx
 ARCH   := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 CC     := aarch64-none-elf-gcc
@@ -14,14 +15,14 @@ LIBS   := -lnx
 
 all: $(TARGET).nro
 
-%.o: %.c elfload.h
+%.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
 
 $(TARGET).nacp:
-	nacptool --create "SDT Loader" "SDT-NX" "0.2" $@
+	nacptool --create "SDT Loader" "SDT-NX" "0.3" $@
 
 $(TARGET).nro: $(TARGET).elf $(TARGET).nacp icon.jpg
 	elf2nro $(TARGET).elf $@ --nacp=$(TARGET).nacp --icon=icon.jpg

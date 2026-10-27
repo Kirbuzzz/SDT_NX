@@ -1,6 +1,6 @@
-/* elfload: cargador minimo de .so ARM64 (Android) pensado para libnx.
- * Portable: no depende de <elf.h>. Toda la parte dependiente de plataforma
- * (memoria, permisos, resolucion de simbolos) va por ElfPlatform. */
+/* elfload v2: cargador de .so ARM64 (Android) para libnx.
+ * Se prepara la imagen en memoria normal ("staging"), se relocan los punteros
+ * con la direccion FINAL, y luego elf_commit() la mapea y fija permisos. */
 #ifndef ELFLOAD_H
 #define ELFLOAD_H
 #include <stddef.h>
@@ -19,24 +19,29 @@ typedef struct { uint64_t r_offset, r_info; int64_t r_addend; } Elf64Rela;
 #define ELF_PROT_X 4
 
 typedef struct ElfPlatform {
-    void *(*alloc)(size_t size, size_t align);               /* memoria RW, puesta a cero */
-    int   (*protect)(void *addr, size_t len, int prot);      /* en Switch: JIT/code memory */
-    void *(*resolve)(const char *sym, void *user);           /* NULL si no existe */
+    void *(*alloc)(size_t size, size_t align);               /* staging RW, a cero            */
+    void *(*reserve)(size_t size, size_t align);             /* direccion final; NULL = usar staging */
+    int   (*map)(void *dst, void *src, size_t size);         /* staging -> dst (src queda inaccesible) */
+    int   (*protect)(void *addr, size_t len, int prot);      /* ELF_PROT_*                    */
+    void *(*resolve)(const char *sym, void *user);           /* NULL si no existe             */
+    void *(*make_stub)(const char *sym, void *user);         /* stub para simbolos no resueltos (no weak) */
     void  (*unresolved)(const char *mod, const char *sym, int weak, void *user);
     void  *user;
-    void  *stub;                                             /* destino de simbolos no resueltos */
 } ElfPlatform;
 
 typedef struct ElfModule {
     char name[64];
-    uint8_t *base; size_t size;
-    const Elf64Sym *symtab; const char *strtab; uint32_t nsyms;
+    uint8_t *base;            /* staging (invalido tras elf_commit con reserve) */
+    uint8_t *load;            /* direccion final de ejecucion                   */
+    size_t size;
+    const Elf64Sym *symtab; const char *strtab; uint32_t nsyms;   /* basados en 'load' */
     void (*init)(void); void (**init_array)(void); size_t init_count;
     size_t n_reloc, n_unres;
     Elf64Phdr ph[16]; int nph;
 } ElfModule;
 
 int   elf_load(ElfModule *m, const char *name, const uint8_t *file, size_t flen, const ElfPlatform *p);
-int   elf_protect(ElfModule *m, const ElfPlatform *p);   /* llamar tras relocar */
-void *elf_sym(const ElfModule *m, const char *name);     /* simbolo exportado o NULL */
+int   elf_commit(ElfModule *m, const ElfPlatform *p);   /* map + permisos por segmento */
+void  elf_run_init(ElfModule *m);                       /* DT_INIT + DT_INIT_ARRAY     */
+void *elf_sym(const ElfModule *m, const char *name);    /* exportado (solo tras commit) */
 #endif
