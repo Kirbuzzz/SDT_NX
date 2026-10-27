@@ -22,7 +22,7 @@ $(TARGET).elf: $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
 
 $(TARGET).nacp:
-	nacptool --create "SDT Loader" "SDT-NX" "0.3" $@
+	nacptool --create "SDT Loader" "SDT-NX" "0.3b" $@
 
 $(TARGET).nro: $(TARGET).elf $(TARGET).nacp icon.jpg
 	elf2nro $(TARGET).elf $@ --nacp=$(TARGET).nacp --icon=icon.jpg
