@@ -11,7 +11,7 @@ CC     := aarch64-none-elf-gcc
 CFLAGS := -g -O2 -Wall -ffunction-sections -D__SWITCH__ $(ARCH) \
           -I$(LIBNX)/include -I$(DEVKITPRO)/portlibs/switch/include
 LDFLAGS:= -specs=$(LIBNX)/switch.specs -g $(ARCH) -L$(LIBNX)/lib
-LIBS   := -lnx
+LIBS   := -lnx -lm
 
 all: $(TARGET).nro
 
